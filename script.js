@@ -1,246 +1,670 @@
-// Global variables
-var window_focus;
-var env, width = 600, height = 400, scaleFactor = 200, blobColl, gravity, stopped;
-var savedMouseCoords = null;
-var selectOffset = null;
+/**
+ * Blob Sallad - Modernized Script
+ *
+ * This script has been refactored to use modern JavaScript (ES6+) standards,
+ * including classes, let/const, and arrow functions. It removes the dependency
+ * on jQuery for DOM manipulation and event handling.
+ */
 
-// Focus and blur events for the window
-$(window).focus(function() {
-    window_focus = true;
-    $('#clickToPlay').fadeOut(300);
-}).blur(function() {
-    window_focus = false;
-    $('#clickToPlay').fadeIn(300);
-});
+// Global state and configuration
+let windowFocus = true;
+let isStopped = false;
+let canvas, ctx;
+let environment, blobCollection;
+let gravity = new Vector(0, 10);
+const width = 600;
+const height = 400;
+const scaleFactor = 200;
 
-// Document ready event
-$(document).ready(function() {
-    init();
+// Mouse interaction variables
+let savedMouseCoords = null;
+let selectOffset = null;
 
-    $('body').click(function() {
-        $('#clickToPlay').fadeOut(300);
-    });
-
-    // Control button click handlers
-    $('#splitBlob').click(function() { blobColl.split(); });
-    $('#joinBlob').click(function() { blobColl.join(); });
-    $('#gravityBlob').click(function() { toggleGravity(); });
-    $('#leftArrow').click(function() { blobColl.addForce(new Vector(-120, 0)); });
-    $('#rightArrow').click(function() { blobColl.addForce(new Vector(120, 0)); });
-    $('#upArrow').click(function() { blobColl.addForce(new Vector(0, -120)); });
-    $('#downArrow').click(function() { blobColl.addForce(new Vector(0, 120)); });
-});
-
-// Vector class for 2D physics calculations
-function Vector(b, d) {
-    this.x = b;
-    this.y = d;
-    this.equal = function(e) { return this.x == e.getX() && this.y == e.getY() };
-    this.getX = function() { return this.x };
-    this.getY = function() { return this.y };
-    this.setX = function(e) { this.x = e };
-    this.setY = function(e) { this.y = e };
-    this.addX = function(e) { this.x += e };
-    this.addY = function(e) { this.y += e };
-    this.set = function(e) { this.x = e.getX(), this.y = e.getY() };
-    this.add = function(e) { this.x += e.getX(), this.y += e.getY() };
-    this.sub = function(e) { this.x -= e.getX(), this.y -= e.getY() };
-    this.dotProd = function(e) { return this.x * e.getX() + this.y * e.getY() };
-    this.length = function() { return Math.sqrt(this.x * this.x + this.y * this.y) };
-    this.scale = function(e) { this.x *= e, this.y *= e };
-    this.toString = function() { return ' X: ' + this.x + ' Y: ' + this.y }
-}
-
-// Environment class for boundaries
-function Environment(b, d, e, g) {
-    this.left = b;
-    this.right = b + e;
-    this.top = d;
-    this.buttom = d + g;
-    this.r = new Vector(0, 0);
-    this.collision = function(k) {
-        var m = !1;
-        if (k.getX() < this.left) { k.setX(this.left); m = !0; }
-        else if (k.getX() > this.right) { k.setX(this.right); m = !0; }
-        if (k.getY() < this.top) { k.setY(this.top); m = !0; }
-        else if (k.getY() > this.buttom) { k.setY(this.buttom); m = !0; }
-        return m;
-    };
-    this.draw = function() {};
-}
-
-// PointMass class for individual particles
-function PointMass(b, d, e) {
-    this.cur = new Vector(b, d);
-    this.prev = new Vector(b, d);
-    this.mass = e;
-    this.force = new Vector(0, 0);
-    this.result = new Vector(0, 0);
-    this.friction = 0.01;
-    this.getXPos = function() { return this.cur.getX() };
-    this.getYPos = function() { return this.cur.getY() };
-    this.getPos = function() { return this.cur };
-    this.getXPrevPos = function() { return this.prev.getX() };
-    this.getYPrevPos = function() { return this.prev.getY() };
-    this.getPrevPos = function() { return this.prev };
-    this.addXPos = function(g) { this.cur.addX(g) };
-    this.addYPos = function(g) { this.cur.addY(g) };
-    this.setForce = function(g) { this.force.set(g) };
-    this.addForce = function(g) { this.force.add(g) };
-    this.getMass = function() { return this.mass };
-    this.setMass = function(g) { this.mass = g };
-    this.move = function(g) {
-        var k, l, m, n;
-        n = g * g;
-        l = this.force.getX() / this.mass;
-        m = this.cur.getX();
-        k = (2 - this.friction) * m - (1 - this.friction) * this.prev.getX() + l * n;
-        this.prev.setX(m);
-        this.cur.setX(k);
-        l = this.force.getY() / this.mass;
-        m = this.cur.getY();
-        k = (2 - this.friction) * m - (1 - this.friction) * this.prev.getY() + l * n;
-        this.prev.setY(m);
-        this.cur.setY(k);
-    };
-    this.setFriction = function(g) { this.friction = g };
-    this.getVelocity = function() { var g, k; return g = this.cur.getX() - this.prev.getX(), k = this.cur.getY() - this.prev.getY(), g * g + k * k };
-    this.draw = function(g, k) { g.lineWidth = 2, g.fillStyle = '#000000', g.strokeStyle = '#000000', g.beginPath(), g.arc(this.cur.getX() * k, this.cur.getY() * k, 4, 0, 2 * Math.PI, !0), g.fill() }
-}
-
-function ConstraintY(b, d, e, g) { this.pointMass = b, this.y = d, this.delta = new Vector(0, 0), this.shortConst = e, this.longConst = g, this.sc = function() { var k; if (k = Math.abs(this.pointMass.getYPos() - this.y), this.delta.setY(-k), 0 != this.shortConst && k < this.shortConst) { var l; l = this.shortConst / k, this.delta.scale(l), b.getPos().sub(this.delta) } else if (0 != this.longConst && k > this.longConst) { var l; l = this.longConst / k, this.delta.scale(l), b.getPos().sub(this.delta) } } }
-function Joint(b, d, e, g) { this.pointMassA = b, this.pointMassB = d, this.delta = new Vector(0, 0), this.pointMassAPos = b.getPos(), this.pointMassBPos = d.getPos(), this.delta.set(this.pointMassBPos), this.delta.sub(this.pointMassAPos), this.shortConst = this.delta.length() * e, this.longConst = this.delta.length() * g, this.scSquared = this.shortConst * this.shortConst, this.lcSquared = this.longConst * this.longConst, this.setDist = function(k, l) { this.shortConst = k, this.longConst = l, this.scSquared = this.shortConst * this.shortConst, this.lcSquared = this.longConst * this.longConst }, this.scale = function(k) { this.shortConst *= k, this.longConst *= k, this.scSquared = this.shortConst * this.shortConst, this.lcSquared = this.longConst * this.longConst }, this.sc = function() { this.delta.set(this.pointMassBPos), this.delta.sub(this.pointMassAPos); var k = this.delta.dotProd(this.delta); if (0 != this.shortConst && k < this.scSquared) { var l; l = this.scSquared / (k + this.scSquared) - 0.5, this.delta.scale(l), this.pointMassAPos.sub(this.delta), this.pointMassBPos.add(this.delta) } else if (0 != this.longConst && k > this.lcSquared) { var l; l = this.lcSquared / (k + this.lcSquared) - 0.5, this.delta.scale(l), this.pointMassAPos.sub(this.delta), this.pointMassBPos.add(this.delta) } } }
-function Stick(b, d) { this.length = function(g, k) { var l, m; return l = g.getXPos() - k.getXPos(), m = g.getYPos() - k.getYPos(), Math.sqrt(l * l + m * m) }(b, d), this.lengthSquared = this.length * this.length, this.pointMassA = b, this.pointMassB = d, this.delta = new Vector(0, 0), this.getPointMassA = function() { return this.pointMassA }, this.getPointMassB = function() { return this.pointMassB }, this.scale = function(g) { this.length *= g, this.lengthSquared = this.length * this.length }, this.sc = function() { var k, l, m, n; m = this.pointMassA.getPos(), n = this.pointMassB.getPos(), this.delta.set(n), this.delta.sub(m), k = this.delta.dotProd(this.delta), l = this.lengthSquared / (k + this.lengthSquared) - 0.5, this.delta.scale(l), m.sub(this.delta), n.add(this.delta) }, this.setForce = function(g) { this.pointMassA.setForce(g), this.pointMassB.setForce(g) }, this.addForce = function(g) { this.pointMassA.addForce(g), this.pointMassB.addForce(g) }, this.move = function(g) { this.pointMassA.move(g), this.pointMassB.move(g) }, this.draw = function(g, k) { this.pointMassA.draw(g, k), this.pointMassB.draw(g, k), g.lineWidth = 3, g.fillStyle = '#000000', g.strokeStyle = '#000000', g.beginPath(), g.moveTo(this.pointMassA.getXPos() * k, this.pointMassA.getYPos() * k), g.lineTo(this.pointMassB.getXPos() * k, this.pointMassB.getYPos() * k), g.stroke() } }
-function Spring(b, d, e, g, k) { this.restLength = b, this.stiffness = d, this.damper = e, this.pointMassA = g, this.pointMassB = k, this.tmp = new Vector(0, 0), this.sc = function(l) { l.collision(this.pointMassA.getPos(), this.pointMassA.getPrevPos()), l.collision(this.pointMassB.getPos(), this.pointMassB.getPrevPos()) }, this.move = function(l) { var m, n, o, q; m = this.pointMassA.getXPos() - this.pointMassB.getXPos(), n = this.pointMassA.getYPos() - this.pointMassB.getYPos(), q = Math.sqrt(m * m + n * n), o = this.stiffness * (q / this.restLength - 1); var r, s, u; r = (this.pointMassA.getPos().getX() - this.pointMassA.getPrevPos().getX()) - (this.pointMassB.getPos().getX() - this.pointMassB.getPrevPos().getX()), s = (this.pointMassA.getPos().getY() - this.pointMassA.getPrevPos().getY()) - (this.pointMassB.getPos().getY() - this.pointMassB.getPrevPos().getY()), u = r * m + s * n, u *= this.damper; var z, A; z = (o + u) * m, A = (o + u) * n, this.tmp.setX(-z), this.tmp.setY(-A), this.pointMassA.addForce(this.tmp), this.tmp.setX(z), this.tmp.setY(A), this.pointMassB.addForce(this.tmp), this.pointMassA.move(l), this.pointMassB.move(l) }, this.addForce = function(l) { this.pointMassA.addForce(l), this.pointMassB.addForce(l) }, this.draw = function(l, m) { this.pointMassA.draw(l, m), this.pointMassB.draw(l, m), l.fillStyle = '#000000', l.strokeStyle = '#000000', l.beginPath(), l.moveTo(this.pointMassA.getXPos() * m, this.pointMassA.getYPos() * m), l.lineTo(this.pointMassB.getXPos() * m, this.pointMassB.getYPos() * m), l.stroke() } }
-
-// Blob class
-function Blob(b, d, e, g) {
-    function k(s, u) { return (s + u) % u; }
-    this.x = b; this.y = d; this.sticks = []; this.pointMasses = []; this.joints = [];
-    this.middlePointMass; this.radius = e; this.drawFaceStyle = 1; this.drawEyeStyle = 1; this.selected = !1;
-    g = 8; var m = 0.95, n = 1.05, o, q, r;
-    for (q = 0, o = 0; q < g; q++) this.pointMasses[q] = new PointMass(Math.cos(o) * e + b, Math.sin(o) * e + d, 1), o += 2 * Math.PI / g;
-    this.middlePointMass = new PointMass(b, d, 1);
-    this.pointMasses[0].setMass(4); this.pointMasses[1].setMass(4);
-    for (q = 0; q < g; q++) this.sticks[q] = new Stick(this.pointMasses[q], this.pointMasses[k(q + 1, g)]);
-    for (q = 0, r = 0; q < g; q++) this.joints[r++] = new Joint(this.pointMasses[q], this.pointMasses[k(q + g / 2 + 1, g)], m, n), this.joints[r++] = new Joint(this.pointMasses[q], this.middlePointMass, 0.9 * n, 1.1 * m);
-    this.addBlob = function(s) { var u = this.joints.length, z; this.joints[u] = new Joint(this.middlePointMass, s.getMiddlePointMass(), 0, 0), z = this.radius + s.getRadius(), this.joints[u].setDist(0.95 * z, 0) };
-    this.getMiddlePointMass = function() { return this.middlePointMass };
-    this.getRadius = function() { return this.radius };
-    this.getXPos = function() { return this.middlePointMass.getXPos() };
-    this.getYPos = function() { return this.middlePointMass.getYPos() };
-    this.scale = function(s) { var u; for (u = 0; u < this.joints.length; u++) this.joints[u].scale(s); for (u = 0; u < this.sticks.length; u++) this.sticks[u].scale(s); this.radius *= s };
-    this.move = function(s) { var u; for (u = 0; u < this.pointMasses.length; u++) this.pointMasses[u].move(s); this.middlePointMass.move(s) };
-    this.sc = function(s) { var u, z; for (z = 0; 4 > z; z++) { for (u = 0; u < this.pointMasses.length; u++)!0 == s.collision(this.pointMasses[u].getPos()) ? this.pointMasses[u].setFriction(0.75) : this.pointMasses[u].setFriction(0.01); for (u = 0; u < this.sticks.length; u++) this.sticks[u].sc(s); for (u = 0; u < this.joints.length; u++) this.joints[u].sc() } };
-    this.setForce = function(s) { var u; for (u = 0; u < this.pointMasses.length; u++) this.pointMasses[u].setForce(s); this.middlePointMass.setForce(s) };
-    this.addForce = function(s) { var u; for (u = 0; u < this.pointMasses.length; u++) this.pointMasses[u].addForce(s); this.middlePointMass.addForce(s); this.pointMasses[0].addForce(s); this.pointMasses[0].addForce(s); this.pointMasses[0].addForce(s); this.pointMasses[0].addForce(s) };
-    this.moveTo = function(s, u) { var z, A; for (A = this.middlePointMass.getPos(), s -= A.getX(), u -= A.getY(), z = 0; z < this.pointMasses.length; z++) A = this.pointMasses[z].getPos(), A.addX(s), A.addY(u); A = this.middlePointMass.getPos(), A.addX(s), A.addY(u) };
-    this.setSelected = function(s) { this.selected = s };
-    this.drawEars = function(s, u) { s.strokeStyle = '#000000', s.fillStyle = '#FFFFFF', s.lineWidth = 2, s.beginPath(), s.moveTo(-0.55 * this.radius * u, -0.35 * this.radius * u), s.lineTo(-0.52 * this.radius * u, -0.55 * this.radius * u), s.lineTo(-0.45 * this.radius * u, -0.4 * this.radius * u), s.fill(), s.stroke(), s.beginPath(), s.moveTo(0.55 * this.radius * u, -0.35 * this.radius * u), s.lineTo(0.52 * this.radius * u, -0.55 * this.radius * u), s.lineTo(0.45 * this.radius * u, -0.4 * this.radius * u), s.fill(), s.stroke() };
-    this.drawHappyEyes1 = function(s, u) { s.lineWidth = 1, s.fillStyle = '#FFFFFF', s.beginPath(), s.arc(-0.15 * this.radius * u, -0.2 * this.radius * u, 0.12 * this.radius * u, 0, 2 * Math.PI, !1), s.fill(), s.stroke(), s.beginPath(), s.arc(0.15 * this.radius * u, -0.2 * this.radius * u, 0.12 * this.radius * u, 0, 2 * Math.PI, !1), s.fill(), s.stroke(), s.fillStyle = '#000000', s.beginPath(), s.arc(-0.15 * this.radius * u, -0.17 * this.radius * u, 0.06 * this.radius * u, 0, 2 * Math.PI, !1), s.fill(), s.beginPath(), s.arc(0.15 * this.radius * u, -0.17 * this.radius * u, 0.06 * this.radius * u, 0, 2 * Math.PI, !1), s.fill() };
-    this.drawHappyEyes2 = function(s, u) { s.lineWidth = 1, s.fillStyle = '#FFFFFF', s.beginPath(), s.arc(-0.15 * this.radius * u, -0.2 * this.radius * u, 0.12 * this.radius * u, 0, 2 * Math.PI, !1), s.stroke(), s.beginPath(), s.arc(0.15 * this.radius * u, -0.2 * this.radius * u, 0.12 * this.radius * u, 0, 2 * Math.PI, !1), s.stroke(), s.lineWidth = 1, s.beginPath(), s.moveTo(-0.25 * this.radius * u, -0.2 * this.radius * u), s.lineTo(-0.05 * this.radius * u, -0.2 * this.radius * u), s.stroke(), s.beginPath(), s.moveTo(0.25 * this.radius * u, -0.2 * this.radius * u), s.lineTo(0.05 * this.radius * u, -0.2 * this.radius * u), s.stroke() };
-    this.drawHappyFace1 = function(s, u) { s.lineWidth = 2, s.strokeStyle = '#000000', s.fillStyle = '#000000', s.beginPath(), s.arc(0, 0, 0.25 * this.radius * u, 0, Math.PI, !1), s.stroke() };
-    this.drawHappyFace2 = function(s, u) { s.lineWidth = 2, s.strokeStyle = '#000000', s.fillStyle = '#000000', s.beginPath(), s.arc(0, 0, 0.25 * this.radius * u, 0, Math.PI, !1), s.fill() };
-    this.drawOohFace = function(s, u) { s.lineWidth = 2, s.strokeStyle = '#000000', s.fillStyle = '#000000', s.beginPath(), s.arc(0, 0.1 * this.radius * u, 0.25 * this.radius * u, 0, Math.PI, !1), s.fill(), s.beginPath(), s.moveTo(-0.25 * this.radius * u, -0.3 * this.radius * u), s.lineTo(-0.05 * this.radius * u, -0.2 * this.radius * u), s.lineTo(-0.25 * this.radius * u, -0.1 * this.radius * u), s.moveTo(0.25 * this.radius * u, -0.3 * this.radius * u), s.lineTo(0.05 * this.radius * u, -0.2 * this.radius * u), s.lineTo(0.25 * this.radius * u, -0.1 * this.radius * u), s.stroke() };
-    this.drawFace = function(s, u) { 1 == this.drawFaceStyle && 0.05 > Math.random() ? this.drawFaceStyle = 2 : 2 == this.drawFaceStyle && 0.1 > Math.random() && (this.drawFaceStyle = 1), 1 == this.drawEyeStyle && 0.025 > Math.random() ? this.drawEyeStyle = 2 : 2 == this.drawEyeStyle && 0.3 > Math.random() && (this.drawEyeStyle = 1), 4e-3 < this.middlePointMass.getVelocity() ? this.drawOohFace(s, u) : (1 == this.drawFaceStyle ? this.drawHappyFace1(s, u, 0, -0.3) : this.drawHappyFace2(s, u, 0, -0.3), 1 == this.drawEyeStyle ? this.drawHappyEyes1(s, u, 0, -0.3) : this.drawHappyEyes2(s, u, 0, -0.3)) };
-    this.getPointMass = function(s) { return s += this.pointMasses.length, s %= this.pointMasses.length, this.pointMasses[s] };
-    this.drawBody = function(s, u) { var z; for (s.strokeStyle = '#000000', s.fillStyle = !0 == this.selected ? '#FFCCCC' : '#FFFFFF', s.lineWidth = 5, s.beginPath(), s.moveTo(this.pointMasses[0].getXPos() * u, this.pointMasses[0].getYPos() * u), z = 0; z < this.pointMasses.length; z++) { var A, B, C, D, E, F, G, H, I, J, K, L; I = this.getPointMass(z - 1), J = this.pointMasses[z], K = this.getPointMass(z + 1), L = this.getPointMass(z + 2), E = K.getXPos(), F = K.getYPos(), G = J.getXPos(), H = J.getYPos(), A = 0.5 * G + 0.5 * E, B = 0.5 * H + 0.5 * F, C = G - I.getXPos() + E - L.getXPos(), D = H - I.getYPos() + F - L.getYPos(), A += 0.16 * C, B += 0.16 * D, A *= u, B *= u, E *= u, F *= u, s.bezierCurveTo(A, B, E, F, E, F) } s.closePath(), s.stroke(), s.fill() };
-    this.draw = function(s, u) { var A, B, C; this.drawBody(s, u), s.strokeStyle = '#000000', s.fillStyle = '#000000', s.save(), s.translate(this.middlePointMass.getXPos() * u, (this.middlePointMass.getYPos() - 0.35 * this.radius) * u), A = new Vector(0, -1), B = new Vector(0, 0), B.set(this.pointMasses[0].getPos()), B.sub(this.middlePointMass.getPos()), C = Math.acos(B.dotProd(A) / B.length()), 0 > B.getX() ? s.rotate(-C) : s.rotate(C), this.drawFace(s, u), s.restore() }
-}
-
-// BlobCollective class
-function BlobCollective(b, d, e, g) {
-    this.maxNum = g, this.numActive = 1, this.blobs = [], this.tmpForce = new Vector(0, 0), this.selectedBlob = null, this.blobs[0] = new Blob(b, d, 0.4, 8);
-    this.split = function() { var k, m = 0, n, o, q; if (this.numActive != this.maxNum) { for (n = this.blobs.length, k = 0; k < this.blobs.length; k++) null != this.blobs[k] && this.blobs[k].getRadius() > m ? (m = this.blobs[k].getRadius(), o = this.blobs[k]) : null == this.blobs[k] && (n = k); for (o.scale(0.75), q = new Blob(o.getXPos(), o.getYPos(), o.getRadius(), 8), k = 0; k < this.blobs.length; k++) null != this.blobs[k] && (this.blobs[k].addBlob(q), q.addBlob(this.blobs[k])); this.blobs[n] = q, this.numActive++ } };
-    this.findSmallest = function(k) { var m, l = 1e3, n; for (n = 0; n < this.blobs.length; n++) n != k && null != this.blobs[n] && this.blobs[n].getRadius() < l && (m = n, l = this.blobs[n].getRadius()); return m };
-    this.findClosest = function(k) { var m, n, o, q, l = 1e3, r, s, u; for (s = this.blobs[k].getMiddlePointMass(), r = 0; r < this.blobs.length; r++) r != k && null != this.blobs[r] && (u = this.blobs[r].getMiddlePointMass(), o = s.getXPos() - u.getXPos(), q = s.getYPos() - u.getYPos(), n = o * o + q * q, n < l && (l = n, m = r)); return m };
-    this.join = function() { var k, l, o, q, r; 1 == this.numActive || (k = this.findSmallest(-1), l = this.findClosest(k), o = this.blobs[k].getRadius(), q = this.blobs[l].getRadius(), r = Math.sqrt(o * o + q * q), this.blobs[k] = null, this.blobs[l].scale(0.945 * r / q), this.numActive--) };
-    this.selectBlob = function(k, l) { var m, o, n = 1e4, r = null; if (null == this.selectedBlob) { for (m = 0; m < this.blobs.length; m++) if (null != this.blobs[m]) { o = this.blobs[m].getMiddlePointMass(); var aXbX = k - o.getXPos(), aYbY = l - o.getYPos(), dist = aXbX * aXbX + aYbY * aYbY; dist < n && (n = dist, dist < 0.5 * this.blobs[m].getRadius() && (this.selectedBlob = this.blobs[m], r = { x: aXbX, y: aYbY })) } } return null != this.selectedBlob && this.selectedBlob.setSelected(!0), r };
-    this.unselectBlob = function() { null == this.selectedBlob || (this.selectedBlob.setSelected(!1), this.selectedBlob = null) };
-    this.selectedBlobMoveTo = function(k, l) { null == this.selectedBlob || this.selectedBlob.moveTo(k, l) };
-    this.move = function(k) { var l; for (l = 0; l < this.blobs.length; l++) null != this.blobs[l] && this.blobs[l].move(k) };
-    this.sc = function(k) { var l; for (l = 0; l < this.blobs.length; l++) null != this.blobs[l] && this.blobs[l].sc(k); };
-    this.setForce = function(k) { var l; for (l = 0; l < this.blobs.length; l++) if (null != this.blobs[l]) { if (this.blobs[l] == this.selectedBlob) { this.blobs[l].setForce(new Vector(0, 0)); continue } this.blobs[l].setForce(k) } };
-    this.addForce = function(k) { var l; for (l = 0; l < this.blobs.length; l++) null != this.blobs[l] && this.blobs[l] != this.selectedBlob && (this.tmpForce.setX(k.getX() * (0.75 * Math.random() + 0.25)), this.tmpForce.setY(k.getY() * (0.75 * Math.random() + 0.25)), this.blobs[l].addForce(this.tmpForce)) };
-    this.draw = function(k, l) { var m; for (m = 0; m < this.blobs.length; m++) null != this.blobs[m] && this.blobs[m].draw(k, l) }
-}
-
-// Main game functions
-function update() {
-    if (null != savedMouseCoords && null != selectOffset) {
-        blobColl.selectedBlobMoveTo(savedMouseCoords.x - selectOffset.x, savedMouseCoords.y - selectOffset.y);
+/**
+ * A 2D Vector class for physics calculations.
+ */
+class Vector {
+    constructor(x = 0, y = 0) {
+        this.x = x;
+        this.y = y;
     }
-    blobColl.move(0.05);
-    blobColl.sc(env);
-    blobColl.setForce(gravity);
-}
 
-function draw() {
-    var b = document.getElementById('blob');
-    if (null != b.getContext) {
-        var d = b.getContext('2d');
-        d.clearRect(0, 0, width, height);
-        env.draw(d, scaleFactor);
-        blobColl.draw(d, scaleFactor);
+    set(other) {
+        this.x = other.x;
+        this.y = other.y;
+    }
+
+    add(other) {
+        this.x += other.x;
+        this.y += other.y;
+    }
+
+    sub(other) {
+        this.x -= other.x;
+        this.y -= other.y;
+    }
+
+    scale(factor) {
+        this.x *= factor;
+        this.y *= factor;
+    }
+
+    dotProd(other) {
+        return this.x * other.x + this.y * other.y;
+    }
+
+    length() {
+        return Math.sqrt(this.x * this.x + this.y * this.y);
     }
 }
 
-function timeout() {
-    draw();
-    update();
-    if (!stopped) {
-        setTimeout('timeout()', 30);
+/**
+ * Defines the simulation boundaries.
+ */
+class Environment {
+    constructor(left, top, width, height) {
+        this.left = left;
+        this.top = top;
+        this.right = left + width;
+        this.bottom = top + height;
+    }
+
+    // Check and resolve collisions with the environment walls
+    handleCollision(pointMass) {
+        let collided = false;
+        if (pointMass.cur.x < this.left) {
+            pointMass.cur.x = this.left;
+            collided = true;
+        } else if (pointMass.cur.x > this.right) {
+            pointMass.cur.x = this.right;
+            collided = true;
+        }
+        if (pointMass.cur.y < this.top) {
+            pointMass.cur.y = this.top;
+            collided = true;
+        } else if (pointMass.cur.y > this.bottom) {
+            pointMass.cur.y = this.bottom;
+            collided = true;
+        }
+        return collided;
     }
 }
 
+/**
+ * Represents a single point mass in the physics simulation.
+ */
+class PointMass {
+    constructor(x, y, mass) {
+        this.cur = new Vector(x, y);
+        this.prev = new Vector(x, y);
+        this.mass = mass;
+        this.force = new Vector(0, 0);
+        this.friction = 0.01;
+    }
+
+    // Update position based on Verlet integration
+    move(deltaTime) {
+        const dtSquared = deltaTime * deltaTime;
+        const acceleration = new Vector(this.force.x / this.mass, this.force.y / this.mass);
+
+        const newX = (2 - this.friction) * this.cur.x - (1 - this.friction) * this.prev.x + acceleration.x * dtSquared;
+        const newY = (2 - this.friction) * this.cur.y - (1 - this.friction) * this.prev.y + acceleration.y * dtSquared;
+
+        this.prev.set(this.cur);
+        this.cur.x = newX;
+        this.cur.y = newY;
+    }
+
+    getVelocity() {
+        const dX = this.cur.x - this.prev.x;
+        const dY = this.cur.y - this.prev.y;
+        return dX * dX + dY * dY;
+    }
+
+    draw(ctx, scale) {
+        ctx.lineWidth = 2;
+        ctx.fillStyle = '#000';
+        ctx.beginPath();
+        ctx.arc(this.cur.x * scale, this.cur.y * scale, 4, 0, 2 * Math.PI, true);
+        ctx.fill();
+    }
+}
+
+/**
+ * A constraint that keeps two PointMass objects a fixed distance apart.
+ */
+class Stick {
+    constructor(pointMassA, pointMassB) {
+        this.pointMassA = pointMassA;
+        this.pointMassB = pointMassB;
+        const delta = new Vector(pointMassA.cur.x - pointMassB.cur.x, pointMassA.cur.y - pointMassB.cur.y);
+        this.length = delta.length();
+        this.lengthSquared = this.length * this.length;
+    }
+
+    scale(factor) {
+        this.length *= factor;
+        this.lengthSquared = this.length * this.length;
+    }
+
+    // Satisfy the constraint
+    satisfy() {
+        const delta = new Vector(this.pointMassB.cur.x - this.pointMassA.cur.x, this.pointMassB.cur.y - this.pointMassA.cur.y);
+        const dot = delta.dotProd(delta);
+        const scaleFactor = this.lengthSquared / (dot + this.lengthSquared) - 0.5;
+        delta.scale(scaleFactor);
+
+        this.pointMassA.cur.sub(delta);
+        this.pointMassB.cur.add(delta);
+    }
+}
+
+/**
+ * A flexible constraint between two PointMass objects.
+ */
+class Joint {
+    constructor(pointA, pointB, shortConst, longConst) {
+        this.pointA = pointA;
+        this.pointB = pointB;
+        const delta = new Vector(pointB.cur.x - pointA.cur.x, pointB.cur.y - pointA.cur.y);
+        const initialLength = delta.length();
+        this.shortConst = initialLength * shortConst;
+        this.longConst = initialLength * longConst;
+        this.scSquared = this.shortConst * this.shortConst;
+        this.lcSquared = this.longConst * this.longConst;
+    }
+
+    scale(factor) {
+        this.shortConst *= factor;
+        this.longConst *= factor;
+        this.scSquared = this.shortConst * this.shortConst;
+        this.lcSquared = this.longConst * this.longConst;
+    }
+
+    setDist(shortDist, longDist) {
+        this.shortConst = shortDist;
+        this.longConst = longDist;
+        this.scSquared = this.shortConst * this.shortConst;
+        this.lcSquared = this.longConst * this.longConst;
+    }
+
+    satisfy() {
+        const delta = new Vector(this.pointB.cur.x - this.pointA.cur.x, this.pointB.cur.y - this.pointA.cur.y);
+        const k = delta.dotProd(delta);
+
+        if (this.shortConst !== 0 && k < this.scSquared) {
+            const l = this.scSquared / (k + this.scSquared) - 0.5;
+            delta.scale(l);
+            this.pointA.cur.sub(delta);
+            this.pointB.cur.add(delta);
+        } else if (this.longConst !== 0 && k > this.lcSquared) {
+            const l = this.lcSquared / (k + this.lcSquared) - 0.5;
+            delta.scale(l);
+            this.pointA.cur.sub(delta);
+            this.pointB.cur.add(delta);
+        }
+    }
+}
+
+/**
+ * Represents a single Blob creature.
+ */
+class Blob {
+    constructor(x, y, radius, numPoints = 8) {
+        this.x = x;
+        this.y = y;
+        this.radius = radius;
+        this.pointMasses = [];
+        this.sticks = [];
+        this.joints = [];
+        this.selected = false;
+        this.face = { eyeStyle: 1, faceStyle: 1 };
+
+        // Create outer points
+        for (let i = 0; i < numPoints; i++) {
+            const angle = (i / numPoints) * 2 * Math.PI;
+            const px = Math.cos(angle) * radius + x;
+            const py = Math.sin(angle) * radius + y;
+            this.pointMasses.push(new PointMass(px, py, 1));
+        }
+
+        // Create center point
+        this.middlePointMass = new PointMass(x, y, 1);
+
+        // Heavier points for orientation
+        this.pointMasses[0].mass = 4;
+        this.pointMasses[1].mass = 4;
+
+        // Create sticks connecting outer points
+        for (let i = 0; i < numPoints; i++) {
+            this.sticks.push(new Stick(this.pointMasses[i], this.pointMasses[(i + 1) % numPoints]));
+        }
+
+        // Create joints for structure
+        const m = 0.95, n = 1.05;
+        for (let i = 0; i < numPoints; i++) {
+            this.joints.push(new Joint(this.pointMasses[i], this.pointMasses[(i + numPoints / 2 + 1) % numPoints], m, n));
+            this.joints.push(new Joint(this.pointMasses[i], this.middlePointMass, 0.9 * n, 1.1 * m));
+        }
+    }
+
+    addBlobConnection(otherBlob) {
+        const newJoint = new Joint(this.middlePointMass, otherBlob.middlePointMass, 0, 0);
+        const totalRadius = this.radius + otherBlob.radius;
+        newJoint.setDist(0.95 * totalRadius, 0);
+        this.joints.push(newJoint);
+    }
+
+    getPointMass(index) {
+        return this.pointMasses[(index + this.pointMasses.length) % this.pointMasses.length];
+    }
+
+    getAllPointMasses() {
+        return [...this.pointMasses, this.middlePointMass];
+    }
+
+    scale(factor) {
+        this.radius *= factor;
+        this.joints.forEach(j => j.scale(factor));
+        this.sticks.forEach(s => s.scale(factor));
+    }
+
+    move(deltaTime) {
+        this.getAllPointMasses().forEach(p => p.move(deltaTime));
+    }
+
+    satisfyConstraints(environment) {
+        for (let i = 0; i < 4; i++) { // Iterations for stability
+            this.getAllPointMasses().forEach(p => {
+                p.friction = environment.handleCollision(p) ? 0.75 : 0.01;
+            });
+            this.sticks.forEach(s => s.satisfy());
+            this.joints.forEach(j => j.satisfy());
+        }
+    }
+
+    setForce(force) {
+        this.getAllPointMasses().forEach(p => p.force.set(force));
+    }
+
+    addForce(force) {
+        this.getAllPointMasses().forEach(p => p.force.add(force));
+        // Add extra force for directional control
+        this.pointMasses[0].force.add(force);
+        this.pointMasses[0].force.add(force);
+    }
+
+    moveTo(x, y) {
+        const delta = new Vector(x - this.middlePointMass.cur.x, y - this.middlePointMass.cur.y);
+        this.getAllPointMasses().forEach(p => {
+            p.cur.add(delta);
+        });
+    }
+
+    // --- Drawing Methods ---
+
+    draw(ctx, scale) {
+        // Draw body
+        ctx.strokeStyle = '#000';
+        ctx.fillStyle = this.selected ? '#FFCCCC' : '#FFF';
+        ctx.lineWidth = 5;
+        ctx.beginPath();
+        ctx.moveTo(this.pointMasses[0].cur.x * scale, this.pointMasses[0].cur.y * scale);
+
+        for (let i = 0; i < this.pointMasses.length; i++) {
+            const pPrev = this.getPointMass(i - 1).cur;
+            const pCurr = this.pointMasses[i].cur;
+            const pNext = this.getPointMass(i + 1).cur;
+            const pAfterNext = this.getPointMass(i + 2).cur;
+
+            const cp1x = (pCurr.x + pNext.x * 0.5) + (pCurr.x - pPrev.x + pNext.x - pAfterNext.x) * 0.16;
+            const cp1y = (pCurr.y + pNext.y * 0.5) + (pCurr.y - pPrev.y + pNext.y - pAfterNext.y) * 0.16;
+            ctx.bezierCurveTo(cp1x * scale, cp1y * scale, pNext.x * scale, pNext.y * scale, pNext.x * scale, pNext.y * scale);
+        }
+        ctx.closePath();
+        ctx.stroke();
+        ctx.fill();
+
+        // Draw face
+        ctx.save();
+        ctx.translate(this.middlePointMass.cur.x * scale, (this.middlePointMass.cur.y - 0.35 * this.radius) * scale);
+        const topPoint = this.pointMasses[0].cur;
+        const centerPoint = this.middlePointMass.cur;
+        const angle = Math.atan2(topPoint.y - centerPoint.y, topPoint.x - centerPoint.x) + Math.PI / 2;
+        ctx.rotate(angle);
+        this.drawFace(ctx, scale);
+        ctx.restore();
+    }
+
+    drawFace(ctx, scale) {
+        const r = this.radius * scale;
+
+        // Animate face expressions
+        if (this.face.faceStyle === 1 && Math.random() < 0.05) this.face.faceStyle = 2;
+        else if (this.face.faceStyle === 2 && Math.random() < 0.1) this.face.faceStyle = 1;
+
+        if (this.face.eyeStyle === 1 && Math.random() < 0.025) this.face.eyeStyle = 2;
+        else if (this.face.eyeStyle === 2 && Math.random() < 0.3) this.face.eyeStyle = 1;
+
+        // Draw face based on velocity
+        if (this.middlePointMass.getVelocity() > 0.004) {
+            this.drawOohFace(ctx, r);
+        } else {
+            this.face.faceStyle === 1 ? this.drawHappyFace1(ctx, r) : this.drawHappyFace2(ctx, r);
+            this.face.eyeStyle === 1 ? this.drawHappyEyes1(ctx, r) : this.drawHappyEyes2(ctx, r);
+        }
+    }
+
+    drawHappyFace1(ctx, r) {
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#000';
+        ctx.beginPath();
+        ctx.arc(0, 0, 0.25 * r, 0, Math.PI, false);
+        ctx.stroke();
+    }
+
+    drawHappyFace2(ctx, r) {
+        ctx.lineWidth = 2;
+        ctx.fillStyle = '#000';
+        ctx.beginPath();
+        ctx.arc(0, 0, 0.25 * r, 0, Math.PI, false);
+        ctx.fill();
+    }
+
+    drawHappyEyes1(ctx, r) {
+        ctx.lineWidth = 1;
+        ctx.fillStyle = '#FFF';
+        ctx.strokeStyle = '#000';
+        [-0.15, 0.15].forEach(xOffset => {
+            ctx.beginPath();
+            ctx.arc(xOffset * r, -0.2 * r, 0.12 * r, 0, 2 * Math.PI, false);
+            ctx.fill();
+            ctx.stroke();
+        });
+        ctx.fillStyle = '#000';
+        [-0.15, 0.15].forEach(xOffset => {
+            ctx.beginPath();
+            ctx.arc(xOffset * r, -0.17 * r, 0.06 * r, 0, 2 * Math.PI, false);
+            ctx.fill();
+        });
+    }
+
+    drawHappyEyes2(ctx, r) {
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = '#000';
+        ctx.beginPath();
+        ctx.moveTo(-0.25 * r, -0.2 * r);
+        ctx.lineTo(-0.05 * r, -0.2 * r);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(0.25 * r, -0.2 * r);
+        ctx.lineTo(0.05 * r, -0.2 * r);
+        ctx.stroke();
+    }
+
+    drawOohFace(ctx, r) {
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = '#000';
+        ctx.fillStyle = '#000';
+        ctx.beginPath();
+        ctx.arc(0, 0.1 * r, 0.25 * r, 0, 2 * Math.PI, false);
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.moveTo(-0.25 * r, -0.3 * r);
+        ctx.lineTo(-0.05 * r, -0.2 * r);
+        ctx.lineTo(-0.25 * r, -0.1 * r);
+        ctx.moveTo(0.25 * r, -0.3 * r);
+        ctx.lineTo(0.05 * r, -0.2 * r);
+        ctx.lineTo(0.25 * r, -0.1 * r);
+        ctx.stroke();
+    }
+}
+
+
+/**
+ * Manages the collection of all blobs in the simulation.
+ */
+class BlobCollection {
+    constructor(x, y, maxBlobs) {
+        this.blobs = [new Blob(x, y, 0.4, 8)];
+        this.maxNum = maxBlobs;
+        this.selectedBlob = null;
+    }
+
+    get activeBlobs() {
+        return this.blobs.filter(b => b !== null);
+    }
+
+    split() {
+        if (this.activeBlobs.length >= this.maxNum) return;
+
+        const largestBlob = this.activeBlobs.reduce((largest, current) =>
+            (current.radius > largest.radius) ? current : largest, this.blobs[0]);
+
+        largestBlob.scale(0.75);
+        const newBlob = new Blob(largestBlob.middlePointMass.cur.x, largestBlob.middlePointMass.cur.y, largestBlob.radius, 8);
+
+        this.activeBlobs.forEach(blob => {
+            blob.addBlobConnection(newBlob);
+            newBlob.addBlobConnection(blob);
+        });
+        this.blobs.push(newBlob);
+    }
+
+    join() {
+        if (this.activeBlobs.length <= 1) return;
+
+        const smallestBlob = this.activeBlobs.reduce((smallest, current) =>
+            (current.radius < smallest.radius) ? current : smallest, this.activeBlobs[0]);
+        const smallestIndex = this.blobs.indexOf(smallestBlob);
+
+        const closestBlob = this.activeBlobs
+            .filter(b => b !== smallestBlob)
+            .reduce((closest, current) => {
+                const distToCurrent = this.distanceSquared(smallestBlob, current);
+                const distToClosest = this.distanceSquared(smallestBlob, closest);
+                return distToCurrent < distToClosest ? current : closest;
+            });
+
+        const r1 = smallestBlob.radius;
+        const r2 = closestBlob.radius;
+        const newRadius = Math.sqrt(r1 * r1 + r2 * r2);
+        closestBlob.scale(0.945 * newRadius / r2);
+
+        this.blobs[smallestIndex] = null;
+    }
+
+    distanceSquared(blobA, blobB) {
+        const dx = blobA.middlePointMass.cur.x - blobB.middlePointMass.cur.x;
+        const dy = blobA.middlePointMass.cur.y - blobB.middlePointMass.cur.y;
+        return dx * dx + dy * dy;
+    }
+
+    selectBlob(x, y) {
+        if (this.selectedBlob) return null;
+
+        for (const blob of this.activeBlobs) {
+            const center = blob.middlePointMass.cur;
+            const distSq = (x - center.x) ** 2 + (y - center.y) ** 2;
+            if (distSq < (0.5 * blob.radius) ** 2) {
+                this.selectedBlob = blob;
+                blob.selected = true;
+                return { x: x - center.x, y: y - center.y };
+            }
+        }
+        return null;
+    }
+
+    unselectBlob() {
+        if (this.selectedBlob) {
+            this.selectedBlob.selected = false;
+            this.selectedBlob = null;
+        }
+    }
+
+    moveSelectedBlobTo(x, y) {
+        if (this.selectedBlob) {
+            this.selectedBlob.moveTo(x, y);
+        }
+    }
+
+    update(deltaTime, environment) {
+        if (savedMouseCoords && selectOffset) {
+            this.moveSelectedBlobTo(savedMouseCoords.x - selectOffset.x, savedMouseCoords.y - selectOffset.y);
+        }
+
+        this.activeBlobs.forEach(blob => {
+            if (blob !== this.selectedBlob) {
+                blob.setForce(gravity);
+            } else {
+                blob.setForce(new Vector(0, 0));
+            }
+            blob.move(deltaTime);
+            blob.satisfyConstraints(environment);
+        });
+    }
+
+    addForce(force) {
+        this.activeBlobs.forEach(blob => {
+            if (blob !== this.selectedBlob) {
+                const randomForce = new Vector(
+                    force.x * (0.75 * Math.random() + 0.25),
+                    force.y * (0.75 * Math.random() + 0.25)
+                );
+                blob.addForce(randomForce);
+            }
+        });
+    }
+
+    draw(ctx, scale) {
+        this.activeBlobs.forEach(blob => blob.draw(ctx, scale));
+    }
+}
+
+/**
+ * Main simulation loop.
+ */
+function gameLoop() {
+    if (isStopped) return;
+
+    // Update physics
+    blobCollection.update(0.05, environment);
+
+    // Draw frame
+    ctx.clearRect(0, 0, width, height);
+    blobCollection.draw(ctx, scaleFactor);
+
+    requestAnimationFrame(gameLoop);
+}
+
+
+/**
+ * Initializes the simulation and event listeners.
+ */
 function init() {
-    function b(e) {
-        if (null == e) e = window.event;
-        return null == e ? null : e.pageX || e.pageY ? { x: e.pageX / scaleFactor, y: e.pageY / scaleFactor } : null;
-    }
-    var d = document.getElementById('blob');
-    if (null == d.getContext) {
-        alert('You need a modern browser for this to work, sorry.');
+    canvas = document.getElementById('blob');
+    if (!canvas.getContext) {
+        alert('Sorry, your browser does not support the HTML5 canvas.');
         return;
     }
-    document.onkeydown = function(e) {
-        var g;
-        g = (null == e) ? window.event.keyCode : e.keyCode;
-        switch (g) {
-            case 37: blobColl.addForce(new Vector(-50, 0)); break; // Left
-            case 38: blobColl.addForce(new Vector(0, -50)); break;  // Up
-            case 39: blobColl.addForce(new Vector(50, 0)); break;   // Right
-            case 40: blobColl.addForce(new Vector(0, 50)); break;   // Down
-            case 74: blobColl.join(); break;  // J
-            case 72: blobColl.split(); break; // H
-            case 71: toggleGravity(); break; // G
-        }
-    };
-    document.onmousedown = function(e) {
-        if (stopped) return;
-        var g = b(e);
-        if (g == null) return;
-        selectOffset = blobColl.selectBlob(g.x, g.y);
-    };
-    document.onmouseup = function() {
-        blobColl.unselectBlob();
-        savedMouseCoords = null;
-        selectOffset = null;
-    };
-    document.onmousemove = function(e) {
-        if (stopped || selectOffset == null) return;
-        var g = b(e);
-        if (g == null) return;
-        blobColl.selectedBlobMoveTo(g.x - selectOffset.x, g.y - selectOffset.y);
-        savedMouseCoords = g;
-    };
-    env = new Environment(0.2, 0.2, 2.6, 1.6);
-    blobColl = new BlobCollective(1, 1, 1, 200);
-    gravity = new Vector(0, 10);
-    stopped = !1;
-    timeout();
+    ctx = canvas.getContext('2d');
+
+    // Create environment and blob collection
+    environment = new Environment(0.2, 0.2, 2.6, 1.6);
+    blobCollection = new BlobCollection(1, 1, 200);
+
+    // Setup event listeners
+    setupEventListeners();
+
+    // Start the game loop
+    isStopped = false;
+    gameLoop();
 }
 
-function stop() { stopped = !0; }
-function start() { stopped = !1; timeout(); }
-function toggleGravity() { 0 < gravity.getY() ? gravity.setY(0) : gravity.setY(10); }
+/**
+ * Sets up all necessary event listeners for user interaction.
+ */
+function setupEventListeners() {
+    const clickToPlay = document.getElementById('clickToPlay');
+
+    // Window focus handling
+    window.addEventListener('focus', () => {
+        windowFocus = true;
+        clickToPlay.style.display = 'none';
+    });
+    window.addEventListener('blur', () => {
+        windowFocus = false;
+        clickToPlay.style.display = 'block';
+    });
+    document.body.addEventListener('click', () => {
+        clickToPlay.style.display = 'none';
+    });
+
+    // Control buttons
+    document.getElementById('splitBlob').addEventListener('click', () => blobCollection.split());
+    document.getElementById('joinBlob').addEventListener('click', () => blobCollection.join());
+    document.getElementById('gravityBlob').addEventListener('click', toggleGravity);
+    document.getElementById('leftArrow').addEventListener('click', () => blobCollection.addForce(new Vector(-120, 0)));
+    document.getElementById('rightArrow').addEventListener('click', () => blobCollection.addForce(new Vector(120, 0)));
+    document.getElementById('upArrow').addEventListener('click', () => blobCollection.addForce(new Vector(0, -120)));
+    document.getElementById('downArrow').addEventListener('click', () => blobCollection.addForce(new Vector(0, 120)));
+
+    // Keyboard controls
+    document.addEventListener('keydown', (e) => {
+        switch (e.key) {
+            case 'h': case 'H': blobCollection.split(); break;
+            case 'j': case 'J': blobCollection.join(); break;
+            case 'g': case 'G': toggleGravity(); break;
+            case 'ArrowLeft': blobCollection.addForce(new Vector(-50, 0)); break;
+            case 'ArrowRight': blobCollection.addForce(new Vector(50, 0)); break;
+            case 'ArrowUp': blobCollection.addForce(new Vector(0, -50)); break;
+            case 'ArrowDown': blobCollection.addForce(new Vector(0, 50)); break;
+        }
+    });
+
+    // Mouse controls
+    canvas.addEventListener('mousedown', (e) => {
+        if (isStopped) return;
+        const coords = getMouseCoords(e);
+        if (coords) {
+            selectOffset = blobCollection.selectBlob(coords.x, coords.y);
+        }
+    });
+
+    document.addEventListener('mouseup', () => {
+        blobCollection.unselectBlob();
+        savedMouseCoords = null;
+        selectOffset = null;
+    });
+
+    document.addEventListener('mousemove', (e) => {
+        if (isStopped || !selectOffset) return;
+        const coords = getMouseCoords(e);
+        if (coords) {
+            blobCollection.moveSelectedBlobTo(coords.x - selectOffset.x, coords.y - selectOffset.y);
+            savedMouseCoords = coords;
+        }
+    });
+}
+
+/**
+ * Helper to get scaled mouse coordinates relative to the canvas.
+ */
+function getMouseCoords(e) {
+    const rect = canvas.getBoundingClientRect();
+    return {
+        x: (e.clientX - rect.left) / scaleFactor,
+        y: (e.clientY - rect.top) / scaleFactor
+    };
+}
+
+/**
+ * Toggles gravity on or off.
+ */
+function toggleGravity() {
+    gravity.y = (gravity.y > 0) ? 0 : 10;
+}
+
+// Start the application once the DOM is ready
+document.addEventListener('DOMContentLoaded', init);
